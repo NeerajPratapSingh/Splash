@@ -1,0 +1,297 @@
+mod archive;
+mod fs_ops;
+#[cfg(windows)]
+mod shell;
+mod thumbs;
+mod watch;
+
+use tauri::Manager;
+
+use fs_ops::{DriveInfo, Entry, QuickLink};
+
+/// Run blocking filesystem work off the main thread so the UI never stalls
+/// (non-async Tauri commands run on the main thread).
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Run `f` with the window handle on the window's own thread (shell menus and
+/// dialogs need it) and wait for its result without blocking that thread.
+#[cfg(windows)]
+async fn on_window_thread<T: Send + 'static>(
+    window: &tauri::WebviewWindow,
+    f: impl FnOnce(windows::Win32::Foundation::HWND) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .run_on_main_thread(move || {
+            let _ = tx.send(f(windows::Win32::Foundation::HWND(hwnd as _)));
+        })
+        .map_err(|e| e.to_string())?;
+    blocking(move || rx.recv().map_err(|e| e.to_string())).await??
+}
+
+#[cfg(not(windows))]
+async fn on_window_thread<T>(
+    _window: &tauri::WebviewWindow,
+    _f: impl FnOnce(()) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    Err("Only available on Windows".into())
+}
+
+/// Run a file operation at most once per `op_id`.
+///
+/// If a request fails inside the webview, Tauri's IPC re-sends it through its
+/// fallback channel, possibly after the backend already did the work. Every
+/// operation that changes files (or opens windows) carries a random id from
+/// the UI; a repeat waits for the first run and returns its result instead of
+/// copying, moving or zipping twice.
+async fn once<T>(op_id: &str, f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String>
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+{
+    use std::collections::HashMap;
+    use std::sync::{Arc, LazyLock, Mutex};
+    use std::time::{Duration, Instant};
+    type Outcome = Result<serde_json::Value, String>;
+    static OPS: LazyLock<Mutex<HashMap<String, (Instant, Arc<tokio::sync::OnceCell<Outcome>>)>>> =
+        LazyLock::new(Mutex::default);
+
+    let cell = {
+        let mut ops = OPS.lock().unwrap();
+        ops.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(600));
+        ops.entry(op_id.to_string())
+            .or_insert_with(|| (Instant::now(), Arc::default()))
+            .1
+            .clone()
+    };
+    let outcome = cell
+        .get_or_init(|| async move {
+            blocking(f).await?.and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string()))
+        })
+        .await
+        .clone();
+    outcome.and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+}
+
+#[tauri::command]
+async fn compress(paths: Vec<String>, op_id: String) -> Result<String, String> {
+    once(&op_id, move || archive::compress(paths)).await
+}
+
+#[tauri::command]
+async fn extract(archive: String, into_folder: bool, op_id: String) -> Result<String, String> {
+    once(&op_id, move || archive::extract(archive, into_folder)).await
+}
+
+/// The extra right-click entries other apps add ("Show more options").
+/// Built on the shell thread so the window never stalls while extensions load.
+#[tauri::command]
+async fn shell_menu_items(window: tauri::WebviewWindow, paths: Vec<String>) -> Result<serde_json::Value, String> {
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+        return blocking(move || {
+            shell::on_shell_thread(move || {
+                shell::native_menu_items(windows::Win32::Foundation::HWND(hwnd as _), &paths)
+                    .and_then(|items| serde_json::to_value(items).map_err(|e| e.to_string()))
+            })
+        })
+        .await?;
+    }
+    #[cfg(not(windows))]
+    return on_window_thread(&window, move |_| Ok(serde_json::json!(paths.len()))).await;
+}
+
+#[tauri::command]
+async fn shell_menu_invoke(window: tauri::WebviewWindow, id: u32, op_id: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let _ = &window;
+        return once(&op_id, move || shell::on_shell_thread(move || shell::invoke_native_item(id))).await;
+    }
+    #[cfg(not(windows))]
+    return on_window_thread(&window, move |_| Ok(drop((id, op_id)))).await;
+}
+
+#[tauri::command]
+async fn properties(window: tauri::WebviewWindow, path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return on_window_thread(&window, move |hwnd| shell::properties(hwnd, &path)).await;
+    #[cfg(not(windows))]
+    return on_window_thread(&window, move |_| Ok(drop(path))).await;
+}
+
+#[tauri::command]
+async fn open_with(window: tauri::WebviewWindow, path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return on_window_thread(&window, move |hwnd| shell::open_with(hwnd, &path)).await;
+    #[cfg(not(windows))]
+    return on_window_thread(&window, move |_| Ok(drop(path))).await;
+}
+
+#[tauri::command]
+async fn open_terminal(dir: String, op_id: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return once(&op_id, move || shell::open_terminal(&dir)).await;
+    #[cfg(not(windows))]
+    return Err(format!("Only available on Windows ({dir}, {op_id})"));
+}
+
+#[tauri::command]
+async fn list_dir(path: String) -> Result<Vec<Entry>, String> {
+    blocking(move || fs_ops::list_dir(&path)).await?
+}
+
+#[tauri::command]
+async fn list_drives() -> Result<Vec<DriveInfo>, String> {
+    // Free-space queries can stall on disconnected network drives.
+    blocking(fs_ops::list_drives).await
+}
+
+#[tauri::command]
+fn quick_links() -> Vec<QuickLink> {
+    fs_ops::quick_links()
+}
+
+#[tauri::command]
+fn home_dir() -> String {
+    fs_ops::home_dir()
+}
+
+#[tauri::command]
+fn parent_dir(path: String) -> Option<String> {
+    fs_ops::parent_dir(&path)
+}
+
+#[tauri::command]
+async fn rename(path: String, new_name: String, op_id: String) -> Result<String, String> {
+    once(&op_id, move || fs_ops::rename(&path, &new_name)).await
+}
+
+#[tauri::command]
+async fn delete_to_trash(paths: Vec<String>, op_id: String) -> Result<(), String> {
+    once(&op_id, move || fs_ops::delete_to_trash(paths)).await
+}
+
+#[tauri::command]
+async fn create_folder(parent: String, name: String, op_id: String) -> Result<String, String> {
+    once(&op_id, move || fs_ops::create_folder(&parent, &name)).await
+}
+
+#[tauri::command]
+async fn create_file(parent: String, name: String, op_id: String) -> Result<String, String> {
+    once(&op_id, move || fs_ops::create_file(&parent, &name)).await
+}
+
+#[tauri::command]
+async fn copy_entries(paths: Vec<String>, dest_dir: String, op_id: String) -> Result<Vec<String>, String> {
+    once(&op_id, move || fs_ops::copy_entries(paths, &dest_dir)).await
+}
+
+#[tauri::command]
+async fn move_entries(paths: Vec<String>, dest_dir: String, op_id: String) -> Result<Vec<String>, String> {
+    once(&op_id, move || fs_ops::move_entries(paths, &dest_dir)).await
+}
+
+#[tauri::command]
+async fn restore(items: Vec<(String, String)>, op_id: String) -> Result<(), String> {
+    once(&op_id, move || fs_ops::restore(items)).await
+}
+
+#[tauri::command]
+async fn open_path(path: String, op_id: String) -> Result<(), String> {
+    once(&op_id, move || fs_ops::open_path(&path)).await
+}
+
+#[tauri::command]
+async fn reveal(path: String, op_id: String) -> Result<(), String> {
+    once(&op_id, move || fs_ops::reveal(&path)).await
+}
+
+#[tauri::command]
+async fn search(root: String, query: String) -> Result<Vec<Entry>, String> {
+    blocking(move || fs_ops::search(&root, &query, 500)).await
+}
+
+#[derive(serde::Serialize)]
+struct Modifiers {
+    ctrl: bool,
+    shift: bool,
+}
+
+/// Ctrl/Shift state during a native drag (the webview gets no key events
+/// while Windows runs the drag loop). Async so it never waits on the main thread.
+#[tauri::command]
+async fn key_modifiers() -> Modifiers {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_SHIFT};
+        Modifiers {
+            ctrl: GetAsyncKeyState(VK_CONTROL.0 as i32) < 0,
+            shift: GetAsyncKeyState(VK_SHIFT.0 as i32) < 0,
+        }
+    }
+    #[cfg(not(windows))]
+    Modifiers {
+        ctrl: false,
+        shift: false,
+    }
+}
+
+/// Auto-refresh: watch exactly these folders (the ones open in tabs).
+#[tauri::command]
+fn watch_dirs(app: tauri::AppHandle, dirs: Vec<String>) {
+    if let Some(watcher) = app.try_state::<watch::FolderWatcher>() {
+        watcher.set(dirs);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let thumbs = thumbs::Pool::new();
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
+        .setup(|app| {
+            // Without a watcher the app still works; folders just don't auto-refresh.
+            if let Ok(watcher) = watch::FolderWatcher::new(app.handle().clone()) {
+                app.manage(watcher);
+            }
+            Ok(())
+        })
+        .register_asynchronous_uri_scheme_protocol("thumb", move |_ctx, req, responder| {
+            thumbs.submit(req, responder)
+        })
+        .invoke_handler(tauri::generate_handler![
+            list_dir,
+            list_drives,
+            quick_links,
+            home_dir,
+            parent_dir,
+            rename,
+            delete_to_trash,
+            create_folder,
+            create_file,
+            copy_entries,
+            move_entries,
+            restore,
+            open_path,
+            reveal,
+            search,
+            key_modifiers,
+            compress,
+            extract,
+            shell_menu_items,
+            shell_menu_invoke,
+            properties,
+            open_with,
+            open_terminal,
+            watch_dirs
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running WinFiles");
+}
