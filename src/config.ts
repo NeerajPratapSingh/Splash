@@ -3,7 +3,7 @@
 export const APP_VERSION = "0.1.0";
 
 /** Project page (source code, issues, releases). */
-export const REPO_URL = "";
+export const REPO_URL = "https://github.com/NeerajPratapSingh/Splash";
 
 /**
  * "Buy me a coffee" page. Splash is free; this is an optional way to support

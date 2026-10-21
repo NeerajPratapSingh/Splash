@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A fast, lightweight file explorer for Windows"
 authors = ["Neeraj Pratap Singh"]
 license = "MIT"
+repository = "https://github.com/NeerajPratapSingh/Splash"
 edition = "2021"
 
 [lib]
