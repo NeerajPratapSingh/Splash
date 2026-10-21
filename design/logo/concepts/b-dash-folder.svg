@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- B — Dash Folder: a folder racing right; its left side breaks into three motion streaks.
+       Body 96..232 × 72..212 (right corners r20), tab 108..172; streaks 34 tall with 16 gaps, capsule ends. -->
+  <g fill="#000">
+    <path d="M96 64 A12 12 0 0 1 108 52 H152 L172 72 H212 A20 20 0 0 1 232 92 V192 A20 20 0 0 1 212 212 H96 Z"/>
+    <rect x="56" y="72" width="60" height="34" rx="17"/>
+    <rect x="24" y="122" width="90" height="34" rx="17"/>
+    <rect x="72" y="178" width="44" height="34" rx="17"/>
+  </g>
+</svg>

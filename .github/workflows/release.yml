@@ -35,9 +35,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "WinFiles ${{ github.ref_name }}"
+          releaseName: "Splash ${{ github.ref_name }}"
           releaseBody: |
-            Download **WinFiles_*_x64-setup.exe** below and run it (Windows 10/11, 64-bit).
+            Download **Splash_*_x64-setup.exe** below and run it (Windows 10/11, 64-bit).
             If SmartScreen warns, click **More info → Run anyway** (the installer isn't code-signed yet).
           releaseDraft: true
           prerelease: false

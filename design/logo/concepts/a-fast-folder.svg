@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- A — Fast Folder: folder (45° tab) with a fast-forward ">>" cut out of the body.
+       Body 24..232 × 72..212, r20; tab top r12; chevrons: half-height 34, horizontal thickness 30. -->
+  <path fill="#000" fill-rule="evenodd" d="
+    M24 64 A12 12 0 0 1 36 52 H96 L116 72 H212 A20 20 0 0 1 232 92 V192 A20 20 0 0 1 212 212 H44 A20 20 0 0 1 24 192 Z
+    M66 108 H96 L130 142 L96 176 H66 L100 142 Z
+    M124 108 H154 L188 142 L154 176 H124 L158 142 Z"/>
+</svg>

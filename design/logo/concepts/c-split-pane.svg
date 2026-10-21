@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- C — Split Pane: two mirrored folders side by side (dual-pane view), tabs on the outer edges.
+       Each body 100 wide × 120 tall, r16; 16 px gutter; tabs 20 tall, slant 45° inward. -->
+  <path fill="#000" d="
+    M20 84 V74 A10 10 0 0 1 30 64 H66 L86 84 H104 A16 16 0 0 1 120 100 V188 A16 16 0 0 1 104 204 H36 A16 16 0 0 1 20 188 Z
+    M236 84 V74 A10 10 0 0 0 226 64 H190 L170 84 H152 A16 16 0 0 0 136 100 V188 A16 16 0 0 0 152 204 H220 A16 16 0 0 0 236 188 Z"/>
+</svg>

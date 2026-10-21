@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- C v2 — Split Folder: one folder cut by a vertical gutter into two panes (split view).
+       Same folder as A; 16-wide gutter centred at x=128 through the body (below the tab line). -->
+  <path fill="#000" fill-rule="evenodd" d="
+    M24 64 A12 12 0 0 1 36 52 H96 L116 72 H212 A20 20 0 0 1 232 92 V192 A20 20 0 0 1 212 212 H44 A20 20 0 0 1 24 192 Z
+    M120 88 H136 V212 H120 Z"/>
+</svg>

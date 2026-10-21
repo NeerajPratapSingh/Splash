@@ -38,8 +38,8 @@ export function orderLabel(key: SortKey, dir: SortDir): string {
  * hidden items are shown.
  */
 
-const FOLDERS_KEY = "winfiles.folderViews";
-const HIDDEN_KEY = "winfiles.showHidden";
+const FOLDERS_KEY = "splash.folderViews";
+const HIDDEN_KEY = "splash.showHidden";
 
 export const DEFAULT_VIEW: FolderView = {
   view: "list",
@@ -96,7 +96,12 @@ export function saveFolderView(path: string, view: FolderView) {
 export const loadShowHidden = () => read<boolean>(HIDDEN_KEY, false);
 export const saveShowHidden = (on: boolean) => write(HIDDEN_KEY, on);
 
+/** "Instant search" (whole-PC name index); on unless turned off. */
+const INDEX_KEY = "splash.searchIndex";
+export const loadSearchIndex = () => read<boolean>(INDEX_KEY, true);
+export const saveSearchIndex = (on: boolean) => write(INDEX_KEY, on);
+
 /** Folders pinned to the sidebar, in display order. */
-const PINS_KEY = "winfiles.pins";
+const PINS_KEY = "splash.pins";
 export const loadPins = () => read<string[]>(PINS_KEY, []);
 export const savePins = (pins: string[]) => write(PINS_KEY, pins);

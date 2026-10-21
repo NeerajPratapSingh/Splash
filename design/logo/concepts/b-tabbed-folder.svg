@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- B — Tabbed Folder: the folder tab repeated like browser tabs (front tab tall, back tab lower).
+       Body 24..232 × 72..212, r20; tabs slant at 45°. -->
+  <path fill="#000" d="
+    M24 64 A12 12 0 0 1 36 52 H88 L108 72 H124 L136 60 H176 L188 72 H212 A20 20 0 0 1 232 92
+    V192 A20 20 0 0 1 212 212 H44 A20 20 0 0 1 24 192 Z"/>
+</svg>

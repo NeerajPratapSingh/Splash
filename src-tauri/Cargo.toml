@@ -1,5 +1,5 @@
 [package]
-name = "winfiles"
+name = "splash"
 version = "0.1.0"
 description = "A fast, lightweight file explorer for Windows"
 authors = ["Neeraj Pratap Singh"]
@@ -7,7 +7,7 @@ license = "MIT"
 edition = "2021"
 
 [lib]
-name = "winfiles_lib"
+name = "splash_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -29,15 +29,18 @@ zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 base64 = "0.22"
 notify = { version = "8.2.0", default-features = false }
 tokio = { version = "1.54.0", default-features = false, features = ["sync"] }
+ignore = "0.4.33"
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]
-# Shell thumbnail cache (IShellItemImageFactory) for photo previews,
-# modifier-key state during native drags, and drive free space.
+# Shell integration: thumbnails, right-click entries, modifier keys during
+# drags, drive free space, and the "default file manager" registry switch.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Registry",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",

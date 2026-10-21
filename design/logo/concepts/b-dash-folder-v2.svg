@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- B v2 — Dash Folder: folder moving right, three detached speed streaks trailing on the left.
+       Body 100..232 × 72..212 (r20), tab 100..164; streaks 22 tall, capsule ends, 16 gap to the body. -->
+  <g fill="#000">
+    <path d="M100 64 A12 12 0 0 1 112 52 H144 L164 72 H212 A20 20 0 0 1 232 92 V192 A20 20 0 0 1 212 212 H120 A20 20 0 0 1 100 192 Z"/>
+    <rect x="44" y="96" width="40" height="22" rx="11"/>
+    <rect x="24" y="131" width="60" height="22" rx="11"/>
+    <rect x="52" y="166" width="32" height="22" rx="11"/>
+  </g>
+</svg>

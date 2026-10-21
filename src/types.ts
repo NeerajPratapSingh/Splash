@@ -38,6 +38,14 @@ export interface FolderView {
   foldersFirst: boolean;
 }
 
+/** Streamed from a name search. */
+export type SearchEvent =
+  | { kind: "batch"; entries: Entry[]; scanned: number }
+  | { kind: "done"; scanned: number; found: number; ms: number; truncated: boolean; cancelled: boolean };
+
+/** Tab "path" of the Search this PC view (not a real folder). */
+export const SEARCH_PC = "search:";
+
 /** An entry from Windows' own right-click menu (WinRAR, Send to…). */
 export interface NativeItem {
   id: number;

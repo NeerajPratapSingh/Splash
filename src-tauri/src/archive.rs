@@ -80,7 +80,7 @@ fn write_zip(paths: &[String], base: &Path, dest: &Path) -> io::Result<()> {
 pub fn extract(archive: String, into_folder: bool) -> Result<String, String> {
     let src = PathBuf::from(&archive);
     let dir = src.parent().ok_or("No parent folder")?.to_path_buf();
-    let scratch = free_name(&dir, ".winfiles-extract", None);
+    let scratch = free_name(&dir, ".splash-extract", None);
     fs::create_dir(&scratch).map_err(|e| format!("Couldn't extract: {e}"))?;
 
     if let Err(e) = unpack(&src, &scratch) {

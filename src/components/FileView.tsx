@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Entry, SortDir, SortKey, ViewMode } from "../types";
-import { formatSize, formatDate, iconFor } from "../util";
+import { formatSize, formatDate, iconFor, dirname } from "../util";
 import { hasThumb, thumbUrl, whenVisible } from "../thumbs";
 import { beginDrag } from "../dnd";
 import { Icon } from "./Icon";
@@ -35,6 +35,8 @@ interface Props {
   reveal: { path: string; n: number } | null;
   /** Items per row, for keyboard navigation in grid view. */
   onColumns: (cols: number) => void;
+  /** Message when there's nothing to show (overrides the default). */
+  emptyText?: string;
 }
 
 function RenameInput({
@@ -251,7 +253,7 @@ export function FileView(p: Props) {
         onClick={p.onBackgroundClick}
         onContextMenu={p.onBackgroundContextMenu}
       >
-        {p.searchMode ? "No matches found" : "This folder is empty"}
+        {p.emptyText ?? (p.searchMode ? "No matches found" : "This folder is empty")}
       </div>
     );
 
@@ -328,10 +330,16 @@ export function FileView(p: Props) {
           </span>
           {label}
         </div>
-        <div className="col-date">
-          {p.searchMode ? "" : formatDate(showCreated ? entry.created : entry.modified)}
-        </div>
-        <div className="col-type">{entry.is_dir ? "Folder" : entry.extension ? entry.extension.toUpperCase() : "File"}</div>
+        {p.searchMode && (
+          // Where the result lives; long paths lose their start, not the folder name.
+          <div className="col-folder" title={dirname(entry.path)}>
+            <bdi>{dirname(entry.path)}</bdi>
+          </div>
+        )}
+        <div className="col-date">{formatDate(showCreated ? entry.created : entry.modified)}</div>
+        {!p.searchMode && (
+          <div className="col-type">{entry.is_dir ? "Folder" : entry.extension ? entry.extension.toUpperCase() : "File"}</div>
+        )}
         <div className="col-size">{formatSize(entry.size)}</div>
       </div>
     );
@@ -380,7 +388,13 @@ export function FileView(p: Props) {
 
   const areaProps = {
     ref: scrollRef,
-    className: "file-area",
+    // Focusable, and takes focus on click: keys (F2, Del, Enter…) then go to the
+    // files instead of the search box you were just typing in.
+    tabIndex: -1,
+    onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!(e.target as HTMLElement).closest("input")) e.currentTarget.focus({ preventScroll: true });
+    },
+    className: `file-area ${p.searchMode ? "search-results" : ""}`,
     "data-drop": p.cwd,
     onClick: p.onBackgroundClick,
     onContextMenu: p.onBackgroundContextMenu,
@@ -406,8 +420,9 @@ export function FileView(p: Props) {
     <div {...areaProps}>
       <div className="list-head">
         {head("name", "Name", "col-name")}
+        {p.searchMode && <div className="col-folder">Folder</div>}
         {showCreated ? head("created", "Created", "col-date") : head("modified", "Modified", "col-date")}
-        {head("type", "Type", "col-type")}
+        {!p.searchMode && head("type", "Type", "col-type")}
         {head("size", "Size", "col-size")}
       </div>
       {body}

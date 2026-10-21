@@ -1,11 +1,15 @@
 mod archive;
+#[cfg(windows)]
+mod default_app;
 mod fs_ops;
+mod index;
+mod search;
 #[cfg(windows)]
 mod shell;
 mod thumbs;
 mod watch;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use fs_ops::{DriveInfo, Entry, QuickLink};
 
@@ -212,9 +216,26 @@ async fn reveal(path: String, op_id: String) -> Result<(), String> {
     once(&op_id, move || fs_ops::reveal(&path)).await
 }
 
+/// Search names under `scope` (a folder, or "pc" for every drive), streaming
+/// matches to `on_event`. A new search cancels the previous one.
 #[tauri::command]
-async fn search(root: String, query: String) -> Result<Vec<Entry>, String> {
-    blocking(move || fs_ops::search(&root, &query, 500)).await
+async fn search_files(
+    scope: String,
+    query: String,
+    on_event: tauri::ipc::Channel<search::SearchEvent>,
+) -> Result<(), String> {
+    blocking(move || search::search(scope, query, on_event)).await
+}
+
+#[tauri::command]
+fn cancel_search() {
+    search::cancel();
+}
+
+/// The "Instant search" setting: keep a name index of every drive (or not).
+#[tauri::command]
+fn set_search_index(enabled: bool) {
+    index::set_enabled(enabled);
 }
 
 #[derive(serde::Serialize)]
@@ -242,6 +263,38 @@ async fn key_modifiers() -> Modifiers {
     }
 }
 
+/// Folder Splash was started with (e.g. by Windows when it's the default), once.
+struct LaunchPath(std::sync::Mutex<Option<String>>);
+
+/// The first command-line argument that looks like a path (not a flag).
+fn path_arg(args: &[String]) -> Option<String> {
+    args.iter()
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
+        .map(|a| a.trim_matches('"').to_string())
+}
+
+#[tauri::command]
+fn launch_path(state: tauri::State<'_, LaunchPath>) -> Option<String> {
+    state.0.lock().unwrap().take()
+}
+
+#[tauri::command]
+fn is_default_app() -> bool {
+    #[cfg(windows)]
+    return default_app::is_default();
+    #[cfg(not(windows))]
+    return false;
+}
+
+#[tauri::command]
+fn set_default_app(on: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    return default_app::set_default(on);
+    #[cfg(not(windows))]
+    return Err(format!("Only available on Windows ({on})"));
+}
+
 /// Auto-refresh: watch exactly these folders (the ones open in tabs).
 #[tauri::command]
 fn watch_dirs(app: tauri::AppHandle, dirs: Vec<String>) {
@@ -253,10 +306,25 @@ fn watch_dirs(app: tauri::AppHandle, dirs: Vec<String>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let thumbs = thumbs::Pool::new();
+    let args: Vec<String> = std::env::args().collect();
     tauri::Builder::default()
+        // Must be first: a second launch (e.g. double-clicking a folder while
+        // Splash is the default) hands its folder to the running window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let _ = app.emit("open-path", path_arg(&argv));
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .manage(LaunchPath(std::sync::Mutex::new(path_arg(&args))))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_drag::init())
         .setup(|app| {
+            if let Ok(dir) = app.path().app_local_data_dir() {
+                index::init(dir.join("search-index.bin"));
+            }
             // Without a watcher the app still works; folders just don't auto-refresh.
             if let Ok(watcher) = watch::FolderWatcher::new(app.handle().clone()) {
                 app.manage(watcher);
@@ -281,7 +349,9 @@ pub fn run() {
             restore,
             open_path,
             reveal,
-            search,
+            search_files,
+            cancel_search,
+            set_search_index,
             key_modifiers,
             compress,
             extract,
@@ -290,8 +360,11 @@ pub fn run() {
             properties,
             open_with,
             open_terminal,
-            watch_dirs
+            watch_dirs,
+            launch_path,
+            is_default_app,
+            set_default_app
         ])
         .run(tauri::generate_context!())
-        .expect("error while running WinFiles");
+        .expect("error while running Splash");
 }

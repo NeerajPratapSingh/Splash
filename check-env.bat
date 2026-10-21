@@ -1,5 +1,5 @@
 @echo off
-echo === WinFiles env check === > check-env.txt
+echo === Splash env check === > check-env.txt
 echo [node] >> check-env.txt
 node -v >> check-env.txt 2>&1
 echo [npm] >> check-env.txt

@@ -1,4 +1,4 @@
-# WinFiles
+# Splash
 
 **A fast, lightweight file explorer for Windows.** Tabs, split view, drag and
 drop, photo previews and archives, in a 1.4 MB installer that opens a
@@ -24,7 +24,7 @@ Free and open source (MIT). Built with [Tauri 2](https://tauri.app) (Rust) and R
 
 ## Install
 
-Download `WinFiles_x.y.z_x64-setup.exe` from the [Releases](../../releases)
+Download `Splash_x.y.z_x64-setup.exe` from the [Releases](../../releases)
 page and run it. Requires Windows 10 or 11 (64-bit).
 
 > The installer isn't code-signed yet, so Windows SmartScreen may show
@@ -96,7 +96,7 @@ Bug reports and pull requests are welcome. Please open an
 
 ## Support
 
-WinFiles is free and always will be. If it saves you time and you'd like to
+Splash is free and always will be. If it saves you time and you'd like to
 say thanks, you can buy me a coffee. It's completely optional, and it helps
 me keep working on it. <!-- TODO: Buy Me a Coffee link -->
 

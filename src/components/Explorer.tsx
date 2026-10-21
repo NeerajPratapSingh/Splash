@@ -8,8 +8,8 @@ import {
   useState,
 } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { api } from "../api";
-import type { Entry, SortKey, Clipboard, FolderView, Kind, NativeItem } from "../types";
+import { api, SEARCH_PC_SCOPE } from "../api";
+import { SEARCH_PC, type Entry, type SortKey, type Clipboard, type FolderView, type Kind, type NativeItem } from "../types";
 import { sortEntries, basename, dirname, samePath, kindOf, dateGroup, KINDS, isArchive } from "../util";
 import { DEFAULT_DIR, folderView, saveFolderView } from "../viewPrefs";
 import { canPreview } from "../thumbs";
@@ -59,6 +59,14 @@ const memory = new Map<number, TabMemory>();
 export const forgetTab = (tabId: number) => memory.delete(tabId);
 
 const TYPEAHEAD_MS = 800;
+const SEARCH_DELAY_MS = 250; // Search this PC starts this long after typing stops
+
+interface SearchStats {
+  scanned: number;
+  ms: number;
+  truncated: boolean;
+  done: boolean;
+}
 
 /** One tab: its own history, listing, selection, sort and search. */
 export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, ref) {
@@ -87,6 +95,20 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Entry[]>([]);
   const [searchMode, setSearchMode] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchStats, setSearchStats] = useState<SearchStats | null>(null);
+  const searchRun = useRef(0); // bumped per search; stale stream events are ignored
+  const searchingRef = useRef(false);
+  const searchDebounce = useRef<number>();
+  // This tab's last "Search this PC", restored when navigating back to it.
+  const pcMemory = useRef<{ query: string; results: Entry[]; stats: SearchStats | null }>({
+    query: "",
+    results: [],
+    stats: null,
+  });
+  // Select this item once its folder has loaded ("Open file location").
+  const pendingSelect = useRef<string | null>(null);
+  const isPc = currentPath === SEARCH_PC;
 
   const [editingAddress, setEditingAddress] = useState(false);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
@@ -102,19 +124,44 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
 
   // ---- data loading ----
   const loadDir = useCallback(async (path: string) => {
-    setLoading(true);
-    setError(null);
-    setSearchMode(false);
-    setSearchResults([]);
-    setQuery("");
+    // Leaving a search: drop its stream (and stop it if still running).
+    if (searchRun.current && searchingRef.current) void api.cancelSearch();
+    searchRun.current++;
+    searchingRef.current = false;
+    clearTimeout(searchDebounce.current);
+    setSearching(false);
     setSelected(new Set());
     setLastIndex(-1);
     setCursor(-1);
     setKindFilter(null);
     setFv(folderView(path));
+    setError(null);
+
+    if (path === SEARCH_PC) {
+      const memo = pcMemory.current;
+      setLoading(false);
+      setEntries([]);
+      setSearchMode(true);
+      setQuery(memo.query);
+      setSearchResults(memo.results);
+      setSearchStats(memo.stats);
+      return;
+    }
+
+    setLoading(true);
+    setSearchMode(false);
+    setSearchResults([]);
+    setSearchStats(null);
+    setQuery("");
     try {
       const list = await api.listDir(path);
       setEntries(list);
+      const target = pendingSelect.current;
+      pendingSelect.current = null;
+      if (target && list.some((e) => e.path === target)) {
+        setSelected(new Set([target]));
+        setReveal({ path: target, n: performance.now() });
+      }
     } catch (e) {
       setEntries([]);
       setError(String(e));
@@ -123,8 +170,46 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     }
   }, []);
 
+  /** Stream a name search under `scope` (a folder, or the whole PC). */
+  const startSearch = (scope: string, q: string) => {
+    const run = ++searchRun.current;
+    let found: Entry[] = [];
+    searchingRef.current = true;
+    setSearchMode(true);
+    setSearchResults([]);
+    setSelected(new Set());
+    setSearchStats(null);
+    setSearching(true);
+    api
+      .searchFiles(scope, q, (ev) => {
+        if (run !== searchRun.current) return; // an older search
+        if (ev.kind === "batch") {
+          found = found.concat(ev.entries);
+          setSearchResults(found);
+          setSearchStats({ scanned: ev.scanned, ms: 0, truncated: false, done: false });
+        } else {
+          searchingRef.current = false;
+          setSearching(false);
+          const stats = { scanned: ev.scanned, ms: ev.ms, truncated: ev.truncated, done: true };
+          setSearchStats(stats);
+          if (scope === SEARCH_PC_SCOPE) pcMemory.current = { query: q, results: found, stats };
+        }
+      })
+      .catch((e) => {
+        if (run !== searchRun.current) return;
+        searchingRef.current = false;
+        setSearching(false);
+        onError(String(e));
+      });
+  };
+
   const reload = useCallback(async () => {
     if (!currentPath) return;
+    if (currentPath === SEARCH_PC) {
+      // Refresh = run the search again (e.g. after renaming or deleting a result).
+      if (query.trim().length >= 2) startSearch(SEARCH_PC_SCOPE, query.trim());
+      return;
+    }
     try {
       const list = await api.listDir(currentPath);
       setEntries(list);
@@ -132,7 +217,8 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     } catch (e) {
       setError(String(e));
     }
-  }, [currentPath]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath, query]);
 
   const navigate = useCallback(
     (path: string) => {
@@ -173,10 +259,11 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   /** After a file operation: refresh this tab, then any other tab showing `dirs`. */
   const changed = useCallback(
     async (dirs: string[]) => {
-      await reload();
+      // Search this PC isn't a folder: its results are patched in place instead.
+      if (currentPath !== SEARCH_PC) await reload();
       onFsChanged(tabId, dirs);
     },
-    [reload, onFsChanged, tabId]
+    [reload, onFsChanged, tabId, currentPath]
   );
 
   // ---- view settings ----
@@ -385,7 +472,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     [clipboard, setClipboard, changed, onError]
   );
   const doPaste = useCallback(async () => {
-    if (currentPath) await pasteInto(currentPath);
+    if (currentPath && currentPath !== SEARCH_PC) await pasteInto(currentPath);
   }, [currentPath, pasteInto]);
 
   const doDelete = useCallback(async (targets?: string[]) => {
@@ -401,10 +488,12 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     try {
       await api.deleteToTrash(paths);
       setSelected(new Set());
+      // Search results aren't re-listed, so drop the deleted items from them.
+      setSearchResults((rs) => rs.filter((r) => !paths.includes(r.path)));
     } catch (e) {
       onError(String(e));
     }
-    await changed([currentPath]);
+    await changed([currentPath, ...paths.map(dirname)]);
   }, [selected, changed, currentPath, onError]);
 
   const startRename = () => {
@@ -415,7 +504,15 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     setRenamingPath(null);
     try {
       const newPath = await api.rename(path, newName);
-      await changed([currentPath]);
+      // Update the renamed item in search results in place.
+      setSearchResults((rs) =>
+        rs.map((r) =>
+          r.path === path
+            ? { ...r, path: newPath, name: basename(newPath), extension: r.is_dir ? "" : (newPath.match(/\.([^.\\/]+)$/)?.[1] ?? "").toLowerCase() }
+            : r
+        )
+      );
+      await changed([currentPath, dirname(path)]);
       selectOnly(newPath);
     } catch (e) {
       onError(String(e));
@@ -423,7 +520,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   };
 
   const newFolder = useCallback(async () => {
-    if (!currentPath) return;
+    if (!currentPath || currentPath === SEARCH_PC) return;
     // Pick a non-clashing default name.
     const names = new Set(entries.map((e) => e.name.toLowerCase()));
     let name = "New folder";
@@ -440,7 +537,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   }, [currentPath, entries, changed, onError]);
 
   const newTextFile = async () => {
-    if (!currentPath) return;
+    if (!currentPath || isPc) return;
     const names = new Set(entries.map((e) => e.name.toLowerCase()));
     let name = "New Text Document.txt";
     let n = 2;
@@ -491,26 +588,49 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   };
 
   // ---- search ----
-  const runDeepSearch = async () => {
-    if (!query.trim() || !currentPath) return;
-    setLoading(true);
-    try {
-      const res = await api.search(currentPath, query.trim());
-      setSearchResults(res);
-      setSearchMode(true);
-      setSelected(new Set());
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setLoading(false);
-    }
+  /** Enter in the search box: search this folder and everything below it (or the whole PC). */
+  const runDeepSearch = () => {
+    const q = query.trim();
+    if (!q || !currentPath) return;
+    clearTimeout(searchDebounce.current);
+    startSearch(isPc ? SEARCH_PC_SCOPE : currentPath, q);
   };
+
+  const stopSearch = () => {
+    clearTimeout(searchDebounce.current);
+    searchRun.current++;
+    if (searchingRef.current) void api.cancelSearch();
+    searchingRef.current = false;
+    setSearching(false);
+  };
+
   const onQueryChange = (q: string) => {
     setQuery(q);
+    if (isPc) {
+      // Search this PC: search as you type (after a short pause).
+      stopSearch();
+      if (q.trim().length >= 2) {
+        searchDebounce.current = window.setTimeout(() => startSearch(SEARCH_PC_SCOPE, q.trim()), SEARCH_DELAY_MS);
+      } else {
+        setSearchResults([]);
+        setSearchStats(null);
+        pcMemory.current = { query: q, results: [], stats: null };
+      }
+      return;
+    }
+    // In a folder, typing filters it; Enter searches subfolders.
     if (!q) {
+      stopSearch();
       setSearchMode(false);
       setSearchResults([]);
+      setSearchStats(null);
     }
+  };
+
+  /** "Open file location": go to the item's folder with it selected. */
+  const openLocation = (entry: Entry) => {
+    pendingSelect.current = entry.path;
+    navigate(dirname(entry.path));
   };
 
   // ---- context menus ----
@@ -572,6 +692,9 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
 
     const items: MenuItem[] = [
       { label: "Open", icon: "open", shortcut: "Enter", onClick: () => openEntry(entry) },
+      ...(searchMode && single
+        ? [{ label: "Open file location", icon: "explorer", onClick: () => openLocation(entry) }]
+        : []),
       ...(!entry.is_dir && single
         ? [{ label: "Open with", icon: "open-with", onClick: () => {}, load: openWithApps }]
         : []),
@@ -616,6 +739,19 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   };
 
   const openBackgroundMenu = (e: React.MouseEvent) => {
+    if (isPc) {
+      // Search results aren't a folder: nothing to create or paste here.
+      const items: MenuItem[] = [
+        {
+          label: "Select all",
+          icon: "select-all",
+          shortcut: "Ctrl+A",
+          onClick: () => setSelected(new Set(displayed.map((x) => x.path))),
+        },
+        { label: "Search again", icon: "refresh", shortcut: "F5", onClick: reload },
+      ];
+      return setMenu({ x: e.clientX, y: e.clientY, items });
+    }
     const items: MenuItem[] = [
       { label: "New folder", icon: "new-folder", shortcut: "Ctrl+Shift+N", onClick: newFolder },
       { label: "New text document", icon: "new-file", onClick: () => void newTextFile() },
@@ -651,15 +787,16 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
       // Jump to the address bar works even from the search box, like Explorer.
       if ((ctrl && key === "l") || (e.altKey && key === "d") || e.key === "F4")
         return (e.preventDefault(), setEditingAddress(true));
+      // Back/Forward/Up also work from the search box, like Explorer.
+      if (e.altKey && e.key === "ArrowLeft") return (e.preventDefault(), goBack());
+      if (e.altKey && e.key === "ArrowRight") return (e.preventDefault(), goForward());
+      if (e.altKey && e.key === "ArrowUp") return (e.preventDefault(), goUp());
       const t = e.target as HTMLElement;
       const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA";
       if (typing) return;
       const pos = cursor >= 0 ? cursor : lastIndex;
       const grid = fv.view === "grid";
 
-      if (e.altKey && e.key === "ArrowLeft") return (e.preventDefault(), goBack());
-      if (e.altKey && e.key === "ArrowRight") return (e.preventDefault(), goForward());
-      if (e.altKey && e.key === "ArrowUp") return (e.preventDefault(), goUp());
       if (e.key === "Backspace") return (e.preventDefault(), goBack());
       if (e.ctrlKey && e.shiftKey && key === "c") {
         e.preventDefault();
@@ -709,7 +846,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
       if (e.ctrlKey && e.shiftKey && key === "n") return (e.preventDefault(), void newFolder());
       if (e.ctrlKey && e.shiftKey && key === "v")
         return (e.preventDefault(), updateView({ view: grid ? "list" : "grid" }));
-      if (ctrl && key === "f") {
+      if (ctrl && !e.shiftKey && key === "f") {
         e.preventDefault();
         (document.querySelector(".pane.focused .search input") as HTMLInputElement)?.focus();
       }
@@ -750,9 +887,17 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
         editingAddress={editingAddress}
         onEditAddress={setEditingAddress}
         onSubmitAddress={submitAddress}
+        pcSearch={isPc}
       />
       <FileView
-        cwd={currentPath}
+        cwd={isPc ? "" : currentPath}
+        emptyText={
+          isPc && query.trim().length < 2
+            ? "Type a file or folder name to search every drive on this PC"
+            : searching
+              ? "Searching…"
+              : undefined
+        }
         entries={displayed}
         view={fv.view}
         sortKey={fv.sortKey}
@@ -781,7 +926,14 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
       <div className="statusbar">
         <span>
           {searchMode
-            ? `${displayed.length} result${displayed.length === 1 ? "" : "s"}`
+            ? searching
+              ? `Searching… ${displayed.length.toLocaleString()} found · ${(searchStats?.scanned ?? 0).toLocaleString()} items checked`
+              : searchStats?.done
+                ? `${displayed.length.toLocaleString()} result${displayed.length === 1 ? "" : "s"} · ${(searchStats.ms / 1000).toFixed(1)} s` +
+                  (searchStats.truncated ? " · showing the first 5,000 — type more to narrow it down" : "")
+                : isPc
+                  ? "Search every drive by name"
+                  : `${displayed.length} result${displayed.length === 1 ? "" : "s"}`
             : filtered
               ? `${displayed.length} of ${visible.length} items`
               : `${displayed.length} item${displayed.length === 1 ? "" : "s"}`}

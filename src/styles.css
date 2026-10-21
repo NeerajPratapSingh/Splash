@@ -121,6 +121,20 @@ button {
   display: flex;
   flex-direction: column;
 }
+.side-item.search-pc {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+}
+.side-item.search-pc:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.side-item.search-pc.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
 .sidebar-footer {
   margin-top: auto; /* pinned to the bottom when the sidebar has room */
   padding: 16px 4px 2px;
@@ -139,6 +153,127 @@ button {
   background: var(--bg-hover);
   color: var(--text);
 }
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.settings-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ---------- Settings dialog ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  animation: fade-in 120ms ease-out;
+}
+.modal {
+  width: min(520px, calc(100vw - 32px));
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: zoom-in 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 6px 20px;
+}
+.modal-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+.setting-title {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.setting-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.setting-note kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11.5px;
+}
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border);
+  transition: background 150ms;
+}
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 150ms;
+}
+.switch.on {
+  background: var(--accent);
+}
+.switch.on span {
+  transform: translateX(18px);
+}
+.switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.modal-links {
+  display: flex;
+  gap: 12px;
+}
+.modal-links button {
+  color: var(--accent);
+  font-size: 12px;
+}
+
 .app-version,
 .version-link {
   padding: 0 10px;
@@ -637,6 +772,7 @@ button {
 
 /* ---------- File area ---------- */
 .file-area {
+  outline: none; /* focusable for keyboard routing; selection shows focus instead */
   position: relative; /* rows are positioned relative to the scroll area */
   flex: 1;
   overflow-y: auto;
@@ -849,6 +985,41 @@ button {
   text-align: right;
 }
 
+/* Search results: Name · Folder · Modified · Size */
+.search-results .list-head,
+.search-results .list-row {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 150px 80px;
+}
+.col-folder {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* ellipsis at the start, so the folder name stays visible */
+  text-align: left;
+}
+.address.pc-search {
+  gap: 4px;
+  padding: 0 8px 0 10px;
+  border-color: var(--accent);
+  cursor: text;
+}
+.address.pc-search > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.address-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--text);
+}
+.address-label svg {
+  color: var(--accent);
+}
+
 /* Narrow panes (split view on a small window): drop the Type column. */
 @container (max-width: 640px) {
   .list-head,
@@ -857,6 +1028,13 @@ button {
   }
   .col-type,
   .sort-label {
+    display: none;
+  }
+  .search-results .list-head,
+  .search-results .list-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 70px;
+  }
+  .search-results .col-date {
     display: none;
   }
   .search {

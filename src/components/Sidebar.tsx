@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { DriveInfo, QuickLink } from "../types";
+import { SEARCH_PC, type DriveInfo, type QuickLink } from "../types";
 import { folderLabel, formatSize, samePath } from "../util";
 import { api } from "../api";
-import { APP_VERSION, REPO_URL, SUPPORT_URL } from "../config";
+import { APP_VERSION, SUPPORT_URL } from "../config";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { UIIcon } from "./Icon";
 
@@ -44,6 +44,7 @@ interface Props {
   onOpenInNewTab: (path: string) => void;
   onUnpin: (path: string) => void;
   onMovePin: (path: string, delta: -1 | 1) => void;
+  onOpenSettings: () => void;
 }
 
 export function Sidebar(p: Props) {
@@ -72,6 +73,17 @@ export function Sidebar(p: Props) {
 
   return (
     <aside className="sidebar">
+      <button
+        className={`side-item search-pc ${isActive(SEARCH_PC) ? "active" : ""}`}
+        onClick={() => p.onNavigate(SEARCH_PC)}
+        title="Find any file or folder on this PC by name (Ctrl+Shift+F)"
+      >
+        <span className="side-icon">
+          <UIIcon name="search" size={16} />
+        </span>
+        Search this PC
+      </button>
+
       <div className="sidebar-title">Quick access</div>
       {p.quickLinks.map((q) => (
         <button key={q.path} className={`side-item ${isActive(q.path) ? "active" : ""}`} {...itemProps(q.path)}>
@@ -123,18 +135,15 @@ export function Sidebar(p: Props) {
       <div className="sidebar-footer">
         {SUPPORT_URL && (
           <button className="support-link" onClick={() => void api.openPath(SUPPORT_URL)} title={SUPPORT_URL}>
-            ☕ Support WinFiles
+            ☕ Support Splash
           </button>
         )}
-        <span className="app-version">
-          {REPO_URL ? (
-            <button className="version-link" onClick={() => void api.openPath(REPO_URL)} title={REPO_URL}>
-              WinFiles {APP_VERSION}
-            </button>
-          ) : (
-            `WinFiles ${APP_VERSION}`
-          )}
-        </span>
+        <div className="footer-row">
+          <button className="settings-btn" onClick={p.onOpenSettings} title="Settings">
+            <UIIcon name="settings" size={15} /> Settings
+          </button>
+          <span className="app-version">Splash {APP_VERSION}</span>
+        </div>
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}

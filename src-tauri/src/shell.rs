@@ -1,5 +1,5 @@
 //! Windows shell integration: the extra entries other apps add to the right-
-//! click menu (WinRAR, OneDrive, PowerRename, Send to…) shown inside WinFiles'
+//! click menu (WinRAR, OneDrive, PowerRename, Send to…) shown inside Splash'
 //! own menu, plus Properties, Open with, and Open in Terminal.
 //!
 //! Functions taking an HWND must run on the window's (main) thread.
@@ -102,13 +102,13 @@ pub fn on_shell_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static
     done_rx.recv().expect("shell thread stopped")
 }
 
-// Verbs WinFiles' own menu already offers, so they aren't listed twice.
+// Verbs Splash' own menu already offers, so they aren't listed twice.
 const OWN_VERBS: &[&str] = &[
     "open", "cut", "copy", "paste", "delete", "rename", "properties", "copyaspath", "explore",
 ];
 
 /// Entries Windows (and installed apps) would show for `paths`, minus ones
-/// WinFiles already has. Pick one with `invoke_native_item`.
+/// Splash already has. Pick one with `invoke_native_item`.
 pub fn native_menu_items(hwnd: HWND, paths: &[String]) -> Result<Vec<NativeItem>, String> {
     NATIVE.with(|n| *n.borrow_mut() = None);
     if paths.is_empty() {

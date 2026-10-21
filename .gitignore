@@ -12,3 +12,9 @@ src-tauri/gen/schemas
 npm-debug.log*
 *.log
 check-env.txt
+
+# Logo work files (renders, test sheets)
+design/logo/concepts/renders/
+design/logo/**/*.html
+design/logo/concepts/concepts.*
+design/logo/final/check.png

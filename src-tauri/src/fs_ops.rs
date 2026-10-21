@@ -2,7 +2,6 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
-use walkdir::WalkDir;
 
 #[derive(Serialize, Clone)]
 pub struct Entry {
@@ -55,7 +54,7 @@ pub struct QuickLink {
     pub kind: String,
 }
 
-fn entry_from(path: &Path, meta: &fs::Metadata) -> Option<Entry> {
+pub(crate) fn entry_from(path: &Path, meta: &fs::Metadata) -> Option<Entry> {
     let is_dir = meta.is_dir();
     let name = path
         .file_name()
@@ -418,29 +417,4 @@ pub fn reveal(path: &str) -> Result<(), String> {
         let parent = Path::new(path).parent().ok_or("No containing folder")?;
         opener::open(parent).map_err(|e| format!("Couldn't open folder: {e}"))
     }
-}
-
-pub fn search(root: &str, query: &str, limit: usize) -> Vec<Entry> {
-    let q = query.to_lowercase();
-    if q.is_empty() {
-        return Vec::new();
-    }
-    let mut results = Vec::new();
-    for entry in WalkDir::new(root)
-        .max_depth(8)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let name = entry.file_name().to_string_lossy().to_lowercase();
-        if name.contains(&q) {
-            // walkdir keeps the listing's metadata on Windows, so this is cheap too.
-            if let Some(e) = entry.metadata().ok().and_then(|m| entry_from(entry.path(), &m)) {
-                results.push(e);
-                if results.len() >= limit {
-                    break;
-                }
-            }
-        }
-    }
-    results
 }

@@ -28,6 +28,8 @@ interface Props {
   editingAddress: boolean;
   onEditAddress: (on: boolean) => void;
   onSubmitAddress: (text: string) => void;
+  /** Showing Search this PC (not a folder). */
+  pcSearch: boolean;
 }
 
 const SORT_KEYS: SortKey[] = ["name", "modified", "created", "size", "type"];
@@ -76,6 +78,34 @@ function Address(p: Props) {
   );
 }
 
+/** Search this PC: the address bar itself is the (only) search box. */
+function PcSearchBox(p: Props) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => input.current?.focus(), []);
+  return (
+    <div className="address pc-search">
+      <UIIcon name="search" size={16} />
+      <input
+        ref={input}
+        className="address-input"
+        placeholder="Search this PC: type a file or folder name"
+        value={p.query}
+        spellCheck={false}
+        onChange={(e) => p.onQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") p.onSubmitSearch();
+          if (e.key === "Escape" && p.query) p.onQuery("");
+        }}
+      />
+      {p.query && (
+        <button className="search-clear" onClick={() => p.onQuery("")} title="Clear">
+          <UIIcon name="x" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Toolbar(p: Props) {
   const { fv } = p;
   const filterLabel = p.kindFilter ? KINDS.find((k) => k.kind === p.kindFilter)!.label : "Filter";
@@ -98,32 +128,37 @@ export function Toolbar(p: Props) {
           </button>
         </div>
 
-        <Address {...p} />
+        {p.pcSearch && !p.editingAddress ? <PcSearchBox {...p} /> : <Address {...p} />}
 
-        <div className="search">
-          <span className="search-icon">
-            <UIIcon name="search" size={16} />
-          </span>
-          <input
-            placeholder="Search this folder"
-            value={p.query}
-            onChange={(e) => p.onQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") p.onSubmitSearch();
-            }}
-          />
-          {p.query && (
-            <button className="search-clear" onClick={() => p.onQuery("")} title="Clear">
-              <UIIcon name="x" size={14} />
-            </button>
-          )}
-        </div>
+        {!p.pcSearch && (
+          <div className="search">
+            <span className="search-icon">
+              <UIIcon name="search" size={16} />
+            </span>
+            <input
+              placeholder="Search this folder"
+              title="Type to filter; Enter searches subfolders too"
+              value={p.query}
+              onChange={(e) => p.onQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") p.onSubmitSearch();
+              }}
+            />
+            {p.query && (
+              <button className="search-clear" onClick={() => p.onQuery("")} title="Clear">
+                <UIIcon name="x" size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="toolbar-row secondary">
-        <button className="text-btn" onClick={p.onNewFolder} title="New folder (Ctrl+Shift+N)">
-          <UIIcon name="new-folder" size={16} /> New folder
-        </button>
+        {!p.pcSearch && (
+          <button className="text-btn" onClick={p.onNewFolder} title="New folder (Ctrl+Shift+N)">
+            <UIIcon name="new-folder" size={16} /> New folder
+          </button>
+        )}
 
         <div className="spacer" />
 

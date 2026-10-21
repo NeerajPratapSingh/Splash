@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import type { Entry, DriveInfo, QuickLink, Clipboard, PaneState, Tab } from "./types";
+import { SEARCH_PC, type Entry, type DriveInfo, type QuickLink, type Clipboard, type PaneState, type Tab } from "./types";
 import { basename, dirname, folderLabel, samePath } from "./util";
 import { watchDrops, type OnDrop } from "./dnd";
 import { Sidebar } from "./components/Sidebar";
 import { Pane } from "./components/Pane";
 import { QuickLook } from "./components/QuickLook";
+import { Settings } from "./components/Settings";
 import { Toast, type ToastAction, type ToastData } from "./components/Toast";
 import { forgetTab, type ExplorerHandle } from "./components/Explorer";
-import { loadPins, loadShowHidden, savePins, saveShowHidden, setDownloadsFolder } from "./viewPrefs";
+import {
+  loadPins,
+  loadSearchIndex,
+  loadShowHidden,
+  savePins,
+  saveSearchIndex,
+  saveShowHidden,
+  setDownloadsFolder,
+} from "./viewPrefs";
 
 let nextId = 1;
 let toastId = 0;
@@ -67,17 +76,20 @@ export default function App() {
   // Initial load.
   useEffect(() => {
     (async () => {
-      const [ql, dr, h] = await Promise.all([
+      const [ql, dr, h, launched] = await Promise.all([
         api.quickLinks(),
         api.listDrives(),
         api.homeDir(),
+        api.launchPath().catch(() => null),
       ]);
       const downloads = ql.find((q) => q.kind === "downloads");
       if (downloads) setDownloadsFolder(downloads.path);
       setQuickLinks(ql);
       setDrives(dr);
-      const start = h || (dr[0]?.path ?? "");
-      setHome(start);
+      const homePath = h || (dr[0]?.path ?? "");
+      setHome(homePath);
+      // Opened on a folder (e.g. by Windows, when Splash is the default) → start there.
+      const start = launched || homePath;
       setPanes((ps) => (ps.length ? ps : [makePane(makeTab(start))]));
     })();
   }, []);
@@ -304,7 +316,10 @@ export default function App() {
 
   // Auto-refresh: watch every folder open in a tab, reload tabs when one changes
   // outside the app (e.g. a download finishing).
-  const openFolders = [...new Set(panes.flatMap((p) => p.tabs.map((t) => t.path)))].sort().join("\n");
+  const openFolders = [...new Set(panes.flatMap((p) => p.tabs.map((t) => t.path)))]
+    .filter((path) => path !== SEARCH_PC)
+    .sort()
+    .join("\n");
   useEffect(() => {
     if (openFolders) api.watchDirs(openFolders.split("\n")).catch(() => {});
   }, [openFolders]);
@@ -312,6 +327,28 @@ export default function App() {
     const unlisten = listen<string[]>("dir-changed", (e) => refreshDirs(e.payload));
     return () => void unlisten.then((f) => f());
   }, [refreshDirs]);
+
+  // Splash launched again (a folder double-clicked while it's the default):
+  // open that folder (or Home, for Win+E) as a new tab here.
+  const openFromOutside = useRef<(path: string | null) => void>(() => {});
+  openFromOutside.current = (path) => newTab(focused, path || homeRef.current);
+  useEffect(() => {
+    const unlisten = listen<string | null>("open-path", (e) => openFromOutside.current(e.payload));
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  // Instant search (whole-PC name index): tell the backend the saved choice.
+  const [searchIndex, setSearchIndexState] = useState(loadSearchIndex);
+  useEffect(() => {
+    api.setSearchIndex(searchIndex).catch(() => {});
+  }, [searchIndex]);
+  const setSearchIndex = (on: boolean) => {
+    setSearchIndexState(on);
+    saveSearchIndex(on);
+  };
 
   const onPreview = useCallback(
     (items: Entry[], index: number) => setPreview({ items, index }),
@@ -343,6 +380,9 @@ export default function App() {
       } else if (e.key === "F3") {
         e.preventDefault();
         toggleSplit();
+      } else if (e.ctrlKey && e.shiftKey && key === "f") {
+        e.preventDefault();
+        navigateFocused(SEARCH_PC);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -362,6 +402,7 @@ export default function App() {
         onOpenInNewTab={(path) => newTab(focused, path)}
         onUnpin={togglePin}
         onMovePin={movePin}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <main className={`panes ${split ? "split" : ""}`}>
         {panes.map((pane, i) => (
@@ -394,6 +435,16 @@ export default function App() {
 
       {preview && (
         <QuickLook items={preview.items} index={preview.index} onClose={closePreview} />
+      )}
+      {settingsOpen && (
+        <Settings
+          showHidden={showHidden}
+          onShowHidden={setShowHidden}
+          searchIndex={searchIndex}
+          onSearchIndex={setSearchIndex}
+          onError={onError}
+          onClose={closeSettings}
+        />
       )}
       {toast && <Toast key={toast.id} toast={toast} onClose={closeToast} />}
     </div>
