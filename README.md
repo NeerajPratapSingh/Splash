@@ -1,15 +1,19 @@
 # Splash
 
 **A fast, lightweight file explorer for Windows.** Tabs, split view, drag and
-drop, photo previews and archives, in a 1.4 MB installer that opens a
-25,000-item folder in under a second.
+drop, photo previews, archives and instant whole-PC search, in a 1.8 MB
+installer that opens a 25,000-item folder in under a second.
 
 Free and open source (MIT). Built with [Tauri 2](https://tauri.app) (Rust) and React.
 
-<!-- TODO: add a screenshot: docs/screenshot.png -->
+![Splash: split view with photo thumbnails and a file list](docs/screenshot.png)
+
+**[Download for Windows](https://github.com/NeerajPratapSingh/Splash/releases/latest)** (1.8 MB installer, Windows 10/11)
 
 ## Features
 
+- **Search this PC** (`Ctrl+Shift+F`). Find any file or folder on every drive by part of its name. An optional index answers in milliseconds (about 0.05 s across 1.2 million files), and *Open file location* jumps straight to it.
+- **Make it your default.** One switch in Settings opens folders, drives and `Win+E` in Splash instead of File Explorer; turning it off (or uninstalling) hands everything back.
 - **Tabs and split view.** Open folders in tabs (`Ctrl+T`); hover a tab to put it side by side with another (`F3`).
 - **Drag and drop** between panes, tabs, the sidebar, and to or from Windows Explorer and the desktop. Moves within a drive, copies across drives (`Ctrl` = copy, `Shift` = move), with **Undo** and **Move instead** right after.
 - **Photo and video thumbnails** from Windows' own thumbnail cache, plus a full-size preview on `Space`.
@@ -36,6 +40,7 @@ page and run it. Requires Windows 10 or 11 (64-bit).
 |---|---|
 | New tab / close tab / next tab | `Ctrl+T` / `Ctrl+W` / `Ctrl+Tab` |
 | Split view on/off | `F3` |
+| Search this PC | `Ctrl+Shift+F` |
 | Type a path | `Ctrl+L` (or click the address bar) |
 | Back / Forward / Up | `Alt+←` / `Alt+→` / `Alt+↑`, `Backspace` = back |
 | Move selection / extend | `↑ ↓ ← →` / `Shift+arrows`, `Home`, `End` |
