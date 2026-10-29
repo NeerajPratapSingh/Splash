@@ -1,6 +1,6 @@
 [package]
 name = "splash"
-version = "0.1.0"
+version = "0.2.0"
 description = "A fast, lightweight file explorer for Windows"
 authors = ["Neeraj Pratap Singh"]
 license = "MIT"
@@ -32,6 +32,7 @@ notify = { version = "8.2.0", default-features = false }
 tokio = { version = "1.54.0", default-features = false, features = ["sync"] }
 ignore = "0.4.33"
 tauri-plugin-single-instance = "2"
+rayon = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Shell integration: thumbnails, right-click entries, modifier keys during

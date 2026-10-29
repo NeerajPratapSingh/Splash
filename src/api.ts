@@ -1,5 +1,15 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Entry, DriveInfo, QuickLink, NativeItem, SearchEvent } from "./types";
+import type {
+  Entry,
+  DriveInfo,
+  QuickLink,
+  NativeItem,
+  SearchEvent,
+  ScanEvent,
+  ScanInfo,
+  SpaceNode,
+  Suggestion,
+} from "./types";
 
 /** `scope` for searchFiles meaning the whole PC (user folders first, then every drive). */
 export const SEARCH_PC_SCOPE = "pc";
@@ -64,6 +74,26 @@ export const api = {
   isDefaultApp: () => invoke<boolean>("is_default_app"),
   /** Make Splash open folders, drives and Win+E (or hand them back to Explorer). */
   setDefaultApp: (on: boolean) => invoke<void>("set_default_app", { on }),
+  /** Storage: scan a drive or folder for what takes room; a new scan stops the previous one. */
+  scanSpace: (root: string, onEvent: (e: ScanEvent) => void) => {
+    const channel = new Channel<ScanEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("scan_space", { root, onEvent: channel });
+  },
+  cancelSpaceScan: () => invoke<void>("cancel_space_scan"),
+  /** The last finished scan of `root` (kept while Splash runs), or null. */
+  spaceInfo: (root: string) => invoke<ScanInfo | null>("space_info", { root }),
+  /** A folder from the scan of `root`, with three levels of children. */
+  spaceView: (root: string, path: string) =>
+    invoke<{ info: ScanInfo; node: SpaceNode }>("space_view", { root, path }),
+  spaceSuggestions: (root: string) => invoke<Suggestion[]>("space_suggestions", { root }),
+  /** Measure `paths` again after they changed; resolves to the updated totals. */
+  spaceRefresh: (root: string, paths: string[]) =>
+    invoke<ScanInfo>("space_refresh", { root, paths }),
+  /** Empty suggested folders (and remove suggested files) into the Recycle Bin; resolves to how many were in use. */
+  cleanUp: (paths: string[]) => invoke<number>("clean_up", { paths, opId: op() }),
+  recycleBinSize: () => invoke<number>("recycle_bin_size"),
+  emptyRecycleBin: () => invoke<void>("empty_recycle_bin", { opId: op() }),
   /** Watch these folders; changes arrive as "dir-changed" events. */
   watchDirs: (dirs: string[]) => invoke<void>("watch_dirs", { dirs }),
 };

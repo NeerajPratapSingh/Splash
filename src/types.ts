@@ -73,3 +73,50 @@ export interface Clipboard {
   paths: string[];
   mode: "copy" | "cut";
 }
+
+/** Tab "path" of the Storage view (not a real folder). */
+export const STORAGE = "storage:";
+
+/** Views that live in a tab but aren't folders. */
+export const isVirtual = (path: string) => path === SEARCH_PC || path === STORAGE;
+
+/** A finished storage scan. */
+export interface ScanInfo {
+  root: string;
+  size: number; // bytes found
+  files: number;
+  denied: number; // folders that couldn't be read
+  ms: number;
+  at: number; // epoch seconds
+  safe: number; // bytes in "safe to remove" suggestions
+  review: number; // bytes in "review first" suggestions
+}
+
+/** Streamed from a storage scan. */
+export type ScanEvent =
+  | { kind: "progress"; files: number; bytes: number; dir: string }
+  | { kind: "done"; info: ScanInfo | null; cancelled: boolean };
+
+/** A box in the storage treemap. Groups ("12 small files") have no path. */
+export interface SpaceNode {
+  name: string;
+  path: string;
+  size: number;
+  files: number;
+  isDir: boolean;
+  cat: number; // index into CATEGORIES
+  modified: number;
+  flag: "safe" | "review" | null;
+  denied: boolean;
+  children: SpaceNode[];
+}
+
+/** Things worth cleaning up, grouped by why. */
+export interface Suggestion {
+  id: string;
+  label: string;
+  note: string;
+  safe: boolean; // false: review first
+  size: number;
+  items: { path: string; size: number }[];
+}

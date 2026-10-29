@@ -177,6 +177,8 @@ export function UIIcon({ name, size = 18 }: { name: string; size?: number }) {
       return <svg {...c}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>;
     case "unsplit":
       return <svg {...c}><rect x="3" y="4" width="18" height="16" rx="2" /></svg>;
+    case "storage":
+      return <svg {...c}><path d="M21 12a9 9 0 1 1-9-9v9z" /><path d="M15 3.5A9 9 0 0 1 20.5 9H15z" /></svg>;
     case "other-pane":
       return <svg {...c}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16M7 12h2M15 12h2" /></svg>;
     default:

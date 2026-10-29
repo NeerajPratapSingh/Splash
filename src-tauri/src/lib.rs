@@ -6,6 +6,7 @@ mod index;
 mod search;
 #[cfg(windows)]
 mod shell;
+mod space;
 mod thumbs;
 mod watch;
 
@@ -238,6 +239,58 @@ fn set_search_index(enabled: bool) {
     index::set_enabled(enabled);
 }
 
+/// Storage: scan `root` (a drive or folder) for what takes room, streaming
+/// progress to `on_event`. A new scan stops the previous one.
+#[tauri::command]
+async fn scan_space(root: String, on_event: tauri::ipc::Channel<space::ScanEvent>) -> Result<(), String> {
+    blocking(move || space::scan(root, on_event)).await
+}
+
+#[tauri::command]
+fn cancel_space_scan() {
+    space::cancel();
+}
+
+/// The last finished scan of `root`, if any (kept until Splash closes).
+#[tauri::command]
+fn space_info(root: String) -> Option<space::ScanInfo> {
+    space::info(&root)
+}
+
+/// A folder from the scan of `root`, with three levels of children for the treemap.
+#[tauri::command]
+async fn space_view(root: String, path: String) -> Result<space::View, String> {
+    blocking(move || space::view(&root, &path)).await?
+}
+
+#[tauri::command]
+async fn space_suggestions(root: String) -> Result<Vec<space::Suggestion>, String> {
+    blocking(move || space::suggestions_for(&root)).await?
+}
+
+/// Measure `paths` again after they changed, updating the scan's totals and suggestions.
+#[tauri::command]
+async fn space_refresh(root: String, paths: Vec<String>) -> Result<space::ScanInfo, String> {
+    blocking(move || space::refresh(&root, paths)).await?
+}
+
+/// Cleanup: empty suggested folders (and remove suggested files) into the
+/// Recycle Bin. Resolves to how many items were in use and left behind.
+#[tauri::command]
+async fn clean_up(paths: Vec<String>, op_id: String) -> Result<u64, String> {
+    once(&op_id, move || Ok(space::clean(paths))).await
+}
+
+#[tauri::command]
+async fn recycle_bin_size() -> Result<u64, String> {
+    blocking(space::recycle_bin_size).await
+}
+
+#[tauri::command]
+async fn empty_recycle_bin(op_id: String) -> Result<(), String> {
+    once(&op_id, space::empty_recycle_bin).await
+}
+
 #[derive(serde::Serialize)]
 struct Modifiers {
     ctrl: bool,
@@ -352,6 +405,15 @@ pub fn run() {
             search_files,
             cancel_search,
             set_search_index,
+            scan_space,
+            cancel_space_scan,
+            space_info,
+            space_view,
+            space_suggestions,
+            space_refresh,
+            clean_up,
+            recycle_bin_size,
+            empty_recycle_bin,
             key_modifiers,
             compress,
             extract,

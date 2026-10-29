@@ -9,13 +9,14 @@ import {
 } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { api, SEARCH_PC_SCOPE } from "../api";
-import { SEARCH_PC, type Entry, type SortKey, type Clipboard, type FolderView, type Kind, type NativeItem } from "../types";
+import { SEARCH_PC, STORAGE, type Entry, type SortKey, type Clipboard, type FolderView, type Kind, type NativeItem } from "../types";
 import { sortEntries, basename, dirname, samePath, kindOf, dateGroup, KINDS, isArchive } from "../util";
 import { DEFAULT_DIR, folderView, saveFolderView } from "../viewPrefs";
 import { canPreview } from "../thumbs";
 import { Toolbar } from "./Toolbar";
 import { FileView } from "./FileView";
 import { ContextMenu, DIVIDER, type MenuItem } from "./ContextMenu";
+import { Storage, forgetStorageTab } from "./Storage";
 
 /** What the app can ask a tab to do from outside (sidebar clicks, refreshes). */
 export interface ExplorerHandle {
@@ -56,7 +57,10 @@ interface TabMemory {
 const memory = new Map<number, TabMemory>();
 
 /** Drop a closed tab's remembered state. */
-export const forgetTab = (tabId: number) => memory.delete(tabId);
+export const forgetTab = (tabId: number) => {
+  memory.delete(tabId);
+  forgetStorageTab(tabId);
+};
 
 const TYPEAHEAD_MS = 800;
 const SEARCH_DELAY_MS = 250; // Search this PC starts this long after typing stops
@@ -109,6 +113,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   // Select this item once its folder has loaded ("Open file location").
   const pendingSelect = useRef<string | null>(null);
   const isPc = currentPath === SEARCH_PC;
+  const isStorage = currentPath === STORAGE;
 
   const [editingAddress, setEditingAddress] = useState(false);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
@@ -137,6 +142,14 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     setFv(folderView(path));
     setError(null);
 
+    if (path === STORAGE) {
+      // The Storage view loads its own data.
+      setLoading(false);
+      setEntries([]);
+      setSearchMode(false);
+      setQuery("");
+      return;
+    }
     if (path === SEARCH_PC) {
       const memo = pcMemory.current;
       setLoading(false);
@@ -204,7 +217,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   };
 
   const reload = useCallback(async () => {
-    if (!currentPath) return;
+    if (!currentPath || currentPath === STORAGE) return;
     if (currentPath === SEARCH_PC) {
       // Refresh = run the search again (e.g. after renaming or deleting a result).
       if (query.trim().length >= 2) startSearch(SEARCH_PC_SCOPE, query.trim());
@@ -780,7 +793,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
 
   // ---- keyboard shortcuts (only for the focused tab) ----
   useEffect(() => {
-    if (!p.focused) return;
+    if (!p.focused || isStorage) return; // Storage has its own keys
     const onKey = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
@@ -854,7 +867,7 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.focused, displayed, selected, clipboard, cursor, lastIndex, fv, goBack, goForward, goUp, reload, doPaste, doDelete, newFolder]);
+  }, [p.focused, isStorage, displayed, selected, clipboard, cursor, lastIndex, fv, goBack, goForward, goUp, reload, doPaste, doDelete, newFolder]);
 
   const cutPaths = useMemo(
     () => new Set(clipboard?.mode === "cut" ? clipboard.paths : []),
@@ -862,6 +875,26 @@ export const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(p, r
   );
 
   const filtered = kindFilter || (!searchMode && query.trim());
+
+  if (isStorage) {
+    return (
+      <div className="explorer" ref={rootRef}>
+        <Storage
+          tabId={tabId}
+          focused={p.focused}
+          canBack={canBack}
+          canForward={canForward}
+          onBack={goBack}
+          onForward={goForward}
+          onOpenFolder={navigate}
+          onOpenInNewTab={p.onOpenInNewTab}
+          onFsChanged={(dirs) => onFsChanged(tabId, dirs)}
+          onError={onError}
+          onNotify={p.onNotify}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="explorer" ref={rootRef}>

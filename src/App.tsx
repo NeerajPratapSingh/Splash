@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { SEARCH_PC, type Entry, type DriveInfo, type QuickLink, type Clipboard, type PaneState, type Tab } from "./types";
+import { SEARCH_PC, isVirtual, type Entry, type DriveInfo, type QuickLink, type Clipboard, type PaneState, type Tab } from "./types";
 import { basename, dirname, folderLabel, samePath } from "./util";
 import { watchDrops, type OnDrop } from "./dnd";
 import { Sidebar } from "./components/Sidebar";
@@ -317,7 +317,7 @@ export default function App() {
   // Auto-refresh: watch every folder open in a tab, reload tabs when one changes
   // outside the app (e.g. a download finishing).
   const openFolders = [...new Set(panes.flatMap((p) => p.tabs.map((t) => t.path)))]
-    .filter((path) => path !== SEARCH_PC)
+    .filter((path) => !isVirtual(path))
     .sort()
     .join("\n");
   useEffect(() => {

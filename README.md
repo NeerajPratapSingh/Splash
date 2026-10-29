@@ -13,6 +13,7 @@ Free and open source (MIT). Built with [Tauri 2](https://tauri.app) (Rust) and R
 ## Features
 
 - **Search this PC** (`Ctrl+Shift+F`). Find any file or folder on every drive by part of its name. An optional index answers in milliseconds (about 0.05 s across 1.2 million files), and *Open file location* jumps straight to it.
+- **Storage** (sidebar). See what's taking up space on a drive or your Home folder as a map of boxes sized by how much room they take, and clean up caches, temp files and leftovers. More below.
 - **Make it your default.** One switch in Settings opens folders, drives and `Win+E` in Splash instead of File Explorer; turning it off (or uninstalling) hands everything back.
 - **Tabs and split view.** Open folders in tabs (`Ctrl+T`); hover a tab to put it side by side with another (`F3`).
 - **Drag and drop** between panes, tabs, the sidebar, and to or from Windows Explorer and the desktop. Moves within a drive, copies across drives (`Ctrl` = copy, `Shift` = move), with **Undo** and **Move instead** right after.
@@ -25,6 +26,33 @@ Free and open source (MIT). Built with [Tauri 2](https://tauri.app) (Rust) and R
 - **Auto-refresh.** Changes from other programs (a finished download, a saved file) show up on their own.
 - **Fast with huge folders.** Only the rows on screen are drawn.
 - Deleting always goes to the **Recycle Bin**.
+
+## Storage: find what's filling your drive
+
+Click **Storage** in the sidebar, then **Scan** your Home folder or a whole
+drive (about 5–20 seconds). Splash measures every folder and shows:
+
+- **A map of your space.** Every box is a folder or file, sized by how much it
+  takes up.
+  - **Click a box to look inside it.** Go back up with the ↑ arrow, the path
+    above the map, or `Backspace`.
+  - **Right-click a box** to open it, show it in its folder, or move it to the
+    Recycle Bin.
+  - **Striped boxes can be cleaned up.** A striped band along the bottom of a
+    box shows how much of it can go.
+  - **Category / Cleanup** switches between colouring by file type and
+    highlighting what's safe to remove (green) or worth reviewing (amber).
+- **Recommendations**, grouped by why:
+  - **Safe to remove:** things apps rebuild on their own (browser and app
+    caches, temp files, npm/pip/Gradle/Cargo caches, build output of idle
+    projects).
+  - **Review first:** AI models, the Android SDK, `node_modules` in idle
+    projects, old installers in Downloads, and big files untouched for a year.
+
+**Clean up** moves what you picked to the Recycle Bin, so you can still get it
+back. Cache and Temp folders are emptied rather than removed, and files in use
+are skipped. The space comes back when you empty the Recycle Bin, which you
+can do from the same panel.
 
 ## Install
 
@@ -81,13 +109,16 @@ src/                     React + TypeScript UI
   components/
     Explorer.tsx         one tab: history, listing, selection, menus, keys
     FileView.tsx         virtualized list/grid, thumbnails, rename
+    Storage.tsx          Storage view: treemap, stats, cleanup recommendations
     Pane.tsx, TabBar.tsx, Sidebar.tsx, Toolbar.tsx, ContextMenu.tsx …
   api.ts                 typed calls into the Rust backend
   dnd.ts                 native drag and drop
+  treemap.ts             squarified treemap layout
   thumbs.ts, viewPrefs.ts, util.ts
 src-tauri/src/           Rust backend
   lib.rs                 Tauri commands
   fs_ops.rs              file operations (list, copy, move, rename, trash…)
+  space.rs               Storage: parallel disk scan, cleanup rules, Recycle Bin
   archive.rs             ZIP create/extract; 7z/RAR/TAR via Windows' tar
   shell.rs               Windows shell: right-click entries, Properties, Open with
   thumbs.rs              thumbnails from the Windows thumbnail cache

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SEARCH_PC, type DriveInfo, type QuickLink } from "../types";
+import { SEARCH_PC, STORAGE, type DriveInfo, type QuickLink } from "../types";
 import { folderLabel, formatSize, samePath } from "../util";
 import { api } from "../api";
 import { APP_VERSION, SUPPORT_URL } from "../config";
@@ -82,6 +82,16 @@ export function Sidebar(p: Props) {
           <UIIcon name="search" size={16} />
         </span>
         Search this PC
+      </button>
+      <button
+        className={`side-item ${isActive(STORAGE) ? "active" : ""}`}
+        onClick={() => p.onNavigate(STORAGE)}
+        title="See what's taking up space and clean up"
+      >
+        <span className="side-icon">
+          <UIIcon name="storage" size={16} />
+        </span>
+        Storage
       </button>
 
       <div className="sidebar-title">Quick access</div>

@@ -105,3 +105,8 @@ export const saveSearchIndex = (on: boolean) => write(INDEX_KEY, on);
 const PINS_KEY = "splash.pins";
 export const loadPins = () => read<string[]>(PINS_KEY, []);
 export const savePins = (pins: string[]) => write(PINS_KEY, pins);
+
+/** The Storage map's "how to get around" tip, until dismissed. */
+const STORAGE_TIP_KEY = "splash.storageTipSeen";
+export const loadStorageTipSeen = () => read<boolean>(STORAGE_TIP_KEY, false);
+export const saveStorageTipSeen = () => write(STORAGE_TIP_KEY, true);

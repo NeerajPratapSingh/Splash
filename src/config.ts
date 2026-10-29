@@ -1,6 +1,6 @@
 /** App-wide settings for the public build. */
 
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 
 /** Project page (source code, issues, releases). */
 export const REPO_URL = "https://github.com/NeerajPratapSingh/Splash";
