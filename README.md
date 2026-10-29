@@ -32,6 +32,8 @@ Free and open source (MIT). Built with [Tauri 2](https://tauri.app) (Rust) and R
 Click **Storage** in the sidebar, then **Scan** your Home folder or a whole
 drive (about 5–20 seconds). Splash measures every folder and shows:
 
+![Splash Storage: a map of what takes space, with cleanable items striped, and cleanup recommendations](docs/storage.png)
+
 - **A map of your space.** Every box is a folder or file, sized by how much it
   takes up.
   - **Click a box to look inside it.** Go back up with the ↑ arrow, the path
