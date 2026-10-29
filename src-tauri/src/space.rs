@@ -874,24 +874,154 @@ fn walk_mut<'a>(tree: &'a mut Dir, parts: &[String]) -> Option<&'a mut Dir> {
     Some(dir)
 }
 
-/// Move suggested items to the Recycle Bin. A folder is emptied rather than
-/// removed (apps expect their Temp and Cache folders to exist); whatever is
-/// in use is left behind. Returns how many items couldn't be moved.
-pub fn clean(paths: Vec<String>) -> u64 {
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanProgress {
+    /// Suggested items finished so far, out of `total`.
+    done: usize,
+    total: usize,
+    /// The item being cleaned now.
+    path: String,
+}
+
+/// How far into a folder that's partly in use to look for what can still go.
+const CLEAN_DEPTH: u32 = 3;
+
+/// Move `targets` to the Recycle Bin, as many as possible: all at once if
+/// nothing is in use, otherwise in halves, then inside folders that are in
+/// use (a running browser locks a few files in its cache, not all of them).
+/// Returns how many items had to stay.
+fn trash_all(targets: &[PathBuf], depth: u32) -> u64 {
+    let targets: Vec<&PathBuf> = targets.iter().filter(|t| t.exists()).collect();
+    if targets.is_empty() || trash::delete_all(&targets).is_ok() {
+        return 0;
+    }
+    if targets.len() > 1 {
+        let (a, b) = targets.split_at(targets.len() / 2);
+        let owned = |s: &[&PathBuf]| s.iter().map(|p| p.to_path_buf()).collect::<Vec<_>>();
+        return trash_all(&owned(a), depth) + trash_all(&owned(b), depth);
+    }
+    let t = targets[0];
+    if t.is_dir() && depth > 0 {
+        let inside: Vec<PathBuf> = fs::read_dir(t).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+        if !inside.is_empty() {
+            return trash_all(&inside, depth - 1);
+        }
+    }
+    u64::from(t.exists())
+}
+
+/// Delete a file for good; read-only ones (common in package caches) too.
+/// Returns 1 if it had to stay (in use).
+fn remove_file(p: &Path) -> u64 {
+    if fs::remove_file(p).is_ok() {
+        return 0;
+    }
+    if let Ok(meta) = fs::symlink_metadata(p) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            #[allow(clippy::permissions_set_readonly_false)] // Windows: just clears the read-only flag
+            perms.set_readonly(false);
+            if fs::set_permissions(p, perms).is_ok() && fs::remove_file(p).is_ok() {
+                return 0;
+            }
+        }
+    }
+    u64::from(fs::symlink_metadata(p).is_ok())
+}
+
+/// Delete everything inside `dir` for good, on all cores, keeping `dir`
+/// itself. Files in use are skipped (so are the folders holding them).
+/// Links are removed, never followed. Returns how many files had to stay.
+fn delete_inside(dir: &Path) -> u64 {
+    let Ok(read) = fs::read_dir(dir) else { return 0 };
+    let entries: Vec<fs::DirEntry> = read.flatten().collect();
+    entries
+        .par_iter()
+        .map(|e| {
+            let p = e.path();
+            match e.file_type() {
+                // A junction or symlink: remove the link, not what it points to.
+                Ok(t) if t.is_symlink() => {
+                    if fs::remove_dir(&p).is_ok() {
+                        0
+                    } else {
+                        remove_file(&p)
+                    }
+                }
+                Ok(t) if t.is_dir() => {
+                    let left = delete_inside(&p);
+                    if left == 0 && fs::remove_dir(&p).is_err() {
+                        // Read-only folder: clear the flag and retry.
+                        let _ = fs::metadata(&p).map(|m| {
+                            let mut perms = m.permissions();
+                            #[allow(clippy::permissions_set_readonly_false)]
+                            perms.set_readonly(false);
+                            let _ = fs::set_permissions(&p, perms);
+                        });
+                        let _ = fs::remove_dir(&p);
+                    }
+                    left
+                }
+                _ => remove_file(&p),
+            }
+        })
+        .sum()
+}
+
+/// Paths that are in a "safe to remove" suggestion of some scan. Only these
+/// are ever deleted for good; anything else asked for goes to the Recycle Bin.
+fn safe_paths() -> std::collections::HashSet<String> {
+    SCANS
+        .lock()
+        .unwrap()
+        .values()
+        .flat_map(|scan| {
+            let scan = scan.lock().unwrap();
+            scan.suggestions
+                .iter()
+                .filter(|s| s.safe)
+                .flat_map(|s| s.items.iter().map(|i| i.path.to_lowercase()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Clean up suggested items, reporting progress to `events`.
+///
+/// `delete` items (caches and temp files that apps rebuild) are deleted for
+/// good, the way Windows' Disk Cleanup does: that's quick and frees the space
+/// right away. `trash` items go to the Recycle Bin, so they can be restored.
+/// A folder is emptied rather than removed (apps expect their Temp and Cache
+/// folders to exist), and whatever is in use is left behind. Returns how many
+/// items had to stay.
+pub fn clean(delete: Vec<String>, trash: Vec<String>, events: Channel<CleanProgress>) -> u64 {
+    let allowed = safe_paths();
+    let (delete, unsafe_delete): (Vec<String>, Vec<String>) =
+        delete.into_iter().partition(|p| allowed.contains(&p.to_lowercase()));
+    let jobs: Vec<(String, bool)> = delete
+        .into_iter()
+        .map(|p| (p, true))
+        .chain(trash.into_iter().chain(unsafe_delete).map(|p| (p, false)))
+        .collect();
+
+    let total = jobs.len();
     let mut failed = 0;
-    for path in paths {
+    for (done, (path, for_good)) in jobs.into_iter().enumerate() {
+        let _ = events.send(CleanProgress { done, total, path: path.clone() });
         let p = Path::new(&path);
+        if for_good {
+            failed += if p.is_dir() { delete_inside(p) } else { remove_file(p) };
+            continue;
+        }
         let targets: Vec<PathBuf> = if p.is_dir() {
             fs::read_dir(p).map(|r| r.flatten().map(|e| e.path()).collect()).unwrap_or_default()
         } else {
             vec![p.to_path_buf()]
         };
-        // All at once is much faster; if anything is in use, go one by one
-        // so the rest still goes.
-        if !targets.is_empty() && trash::delete_all(&targets).is_err() {
-            failed += targets.iter().filter(|t| t.exists() && trash::delete(t).is_err()).count() as u64;
-        }
+        failed += trash_all(&targets, CLEAN_DEPTH);
     }
+    let _ = events.send(CleanProgress { done: total, total, path: String::new() });
     failed
 }
 
@@ -1046,13 +1176,74 @@ mod tests {
         t.file(r"cache\one.bin", 2 << 20);
         t.file(r"cache\deep\two.bin", 1 << 20);
         t.file("installer.exe", 1000);
-        let failed = clean(vec![
-            t.0.join("cache").to_string_lossy().into(),
-            t.0.join("installer.exe").to_string_lossy().into(),
-        ]);
+        let events = Channel::new(|_| Ok(()));
+        let failed = clean(
+            Vec::new(),
+            vec![t.0.join("cache").to_string_lossy().into(), t.0.join("installer.exe").to_string_lossy().into()],
+            events,
+        );
         assert_eq!(failed, 0);
         assert!(t.0.join("cache").is_dir(), "the folder itself stays");
         assert_eq!(fs::read_dir(t.0.join("cache")).unwrap().count(), 0, "but it's empty");
         assert!(!t.0.join("installer.exe").exists());
+    }
+
+    /// Uses the real Recycle Bin, so it only runs when asked: `cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    #[cfg(windows)]
+    fn clean_skips_only_what_is_in_use() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = TempTree::new("in-use");
+        for i in 0..20 {
+            t.file(&format!(r"cache\entry{i}.bin"), 1000);
+        }
+        t.file(r"cache\Cache_Data\locked.bin", 1000);
+        t.file(r"cache\Cache_Data\free.bin", 1000);
+        // Like a running browser: one file open with no sharing.
+        let lock = fs::OpenOptions::new().read(true).share_mode(0).open(t.0.join(r"cache\Cache_Data\locked.bin")).unwrap();
+        let failed = clean(Vec::new(), vec![t.0.join("cache").to_string_lossy().into()], Channel::new(|_| Ok(())));
+        drop(lock);
+        assert_eq!(failed, 1, "only the locked file stays");
+        assert!(t.0.join(r"cache\Cache_Data\locked.bin").exists());
+        assert!(!t.0.join(r"cache\Cache_Data\free.bin").exists(), "its neighbour still goes");
+        assert!(!t.0.join(r"cache\entry0.bin").exists() && !t.0.join(r"cache\entry19.bin").exists());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn delete_for_good_only_what_a_scan_called_safe() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = TempTree::new("delete");
+        let cache = t.0.join(r"AppData\Roaming\App\Code Cache");
+        for i in 0..50 {
+            t.file(&format!(r"AppData\Roaming\App\Code Cache\js\entry{i}"), 1000);
+        }
+        t.file(r"AppData\Roaming\App\Code Cache\wasm\locked", 2 << 20);
+        t.file(r"AppData\Roaming\App\Code Cache\readonly", 1000);
+        let ro = cache.join("readonly");
+        let mut perms = fs::metadata(&ro).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&ro, perms).unwrap();
+        // Not suggested by any scan: must not be deleted for good.
+        t.file(r"Documents\keep.txt", 1000);
+        scan_now(&t.root());
+
+        let lock = fs::OpenOptions::new().read(true).share_mode(0).open(cache.join(r"wasm\locked")).unwrap();
+        let failed = clean(
+            vec![cache.to_string_lossy().into()],
+            Vec::new(),
+            Channel::new(|_| Ok(())),
+        );
+        drop(lock);
+
+        assert!(cache.is_dir(), "the cache folder itself stays");
+        assert!(cache.join(r"wasm\locked").exists(), "files in use stay");
+        assert!(!cache.join("js").exists() && !ro.exists(), "everything else goes, read-only too");
+        assert_eq!(failed, 1);
+        // Anything a scan didn't call safe is never deleted for good: clean()
+        // sends it to the Recycle Bin instead.
+        assert!(safe_paths().contains(&cache.to_string_lossy().to_lowercase()));
+        assert!(!safe_paths().contains(&t.0.join("Documents").to_string_lossy().to_lowercase()));
     }
 }

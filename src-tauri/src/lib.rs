@@ -274,11 +274,17 @@ async fn space_refresh(root: String, paths: Vec<String>) -> Result<space::ScanIn
     blocking(move || space::refresh(&root, paths)).await?
 }
 
-/// Cleanup: empty suggested folders (and remove suggested files) into the
-/// Recycle Bin. Resolves to how many items were in use and left behind.
+/// Cleanup: delete safe suggestions (caches, temp files) for good and empty
+/// review ones into the Recycle Bin, streaming progress to `on_event`.
+/// Resolves to how many items were in use and left behind.
 #[tauri::command]
-async fn clean_up(paths: Vec<String>, op_id: String) -> Result<u64, String> {
-    once(&op_id, move || Ok(space::clean(paths))).await
+async fn clean_up(
+    delete: Vec<String>,
+    trash: Vec<String>,
+    op_id: String,
+    on_event: tauri::ipc::Channel<space::CleanProgress>,
+) -> Result<u64, String> {
+    once(&op_id, move || Ok(space::clean(delete, trash, on_event))).await
 }
 
 #[tauri::command]

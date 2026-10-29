@@ -49,10 +49,11 @@ drive (about 5–20 seconds). Splash measures every folder and shows:
   - **Review first:** AI models, the Android SDK, `node_modules` in idle
     projects, old installers in Downloads, and big files untouched for a year.
 
-**Clean up** moves what you picked to the Recycle Bin, so you can still get it
-back. Cache and Temp folders are emptied rather than removed, and files in use
-are skipped. The space comes back when you empty the Recycle Bin, which you
-can do from the same panel.
+**Clean up** deletes the safe items (caches and temp files) right away, the
+way Windows' own Disk Cleanup does, since apps rebuild them. Review items go
+to the Recycle Bin, so you can still get them back; you can empty it from the
+same panel. Cache and Temp folders are emptied rather than removed, and files
+in use are skipped. A progress bar shows how far along it is.
 
 ## Install
 

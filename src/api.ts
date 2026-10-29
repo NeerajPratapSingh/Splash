@@ -7,6 +7,7 @@ import type {
   SearchEvent,
   ScanEvent,
   ScanInfo,
+  CleanProgress,
   SpaceNode,
   Suggestion,
 } from "./types";
@@ -90,8 +91,16 @@ export const api = {
   /** Measure `paths` again after they changed; resolves to the updated totals. */
   spaceRefresh: (root: string, paths: string[]) =>
     invoke<ScanInfo>("space_refresh", { root, paths }),
-  /** Empty suggested folders (and remove suggested files) into the Recycle Bin; resolves to how many were in use. */
-  cleanUp: (paths: string[]) => invoke<number>("clean_up", { paths, opId: op() }),
+  /**
+   * Clean up suggestions: `del` (safe ones: caches, temp files) are deleted
+   * for good, `trash` (review ones) go to the Recycle Bin. Progress arrives on
+   * `onProgress`; resolves to how many items were in use and stayed.
+   */
+  cleanUp: (del: string[], trash: string[], onProgress: (e: CleanProgress) => void) => {
+    const channel = new Channel<CleanProgress>();
+    channel.onmessage = onProgress;
+    return invoke<number>("clean_up", { delete: del, trash, opId: op(), onEvent: channel });
+  },
   recycleBinSize: () => invoke<number>("recycle_bin_size"),
   emptyRecycleBin: () => invoke<void>("empty_recycle_bin", { opId: op() }),
   /** Watch these folders; changes arrive as "dir-changed" events. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
-import type { DriveInfo, ScanEvent, ScanInfo, SpaceNode, Suggestion } from "../types";
+import type { CleanProgress, DriveInfo, ScanEvent, ScanInfo, SpaceNode, Suggestion } from "../types";
 import { basename, dirname, formatSize, isDriveRoot, normPath, samePath } from "../util";
 import { squarify, type Rect } from "../treemap";
 import { loadStorageTipSeen, saveStorageTipSeen } from "../viewPrefs";
@@ -128,6 +128,15 @@ export function Storage(p: Props) {
     refreshMachine();
     api.homeDir().then(setHome, () => {});
   }, [refreshMachine]);
+  // Free space and the Recycle Bin change outside Splash too.
+  useEffect(() => {
+    const timer = setInterval(refreshMachine, 15_000);
+    window.addEventListener("focus", refreshMachine);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshMachine);
+    };
+  }, [refreshMachine]);
 
   const [info, setInfo] = useState<ScanInfo | null>(null);
   const [node, setNode] = useState<SpaceNode | null>(null);
@@ -137,6 +146,9 @@ export function Storage(p: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [cleaning, setCleaning] = useState<CleanProgress | null>(null);
+  // freed: bytes gone for good; binned: bytes now in the Recycle Bin.
+  const [result, setResult] = useState<{ freed: number; binned: number; inUse: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [tip, setTip] = useState(() => !loadStorageTipSeen());
   const closeTip = () => {
@@ -261,28 +273,44 @@ export function Storage(p: Props) {
   const cleanUp = async () => {
     const paths = [...picked];
     if (!paths.length || !root || !info) return;
-    const ok = await confirm(
-      `Move ${plural(paths.length, "item")} (${size(pickedSize)}) to the Recycle Bin?\n\n` +
-        "Folders like Temp and caches are emptied, not removed, and files that are in use are skipped. " +
-        "Anything too big for the Recycle Bin is deleted permanently.",
-      { title: "Clean up", kind: "warning", okLabel: "Clean up" }
-    );
+    // Safe items (caches, temp files) are deleted for good: apps rebuild them,
+    // and the Recycle Bin is very slow with their many small files. Review
+    // items go to the Recycle Bin so they can be restored.
+    const safe = new Set(items.filter((i) => i.safe).map((i) => i.path));
+    const del = paths.filter((x) => safe.has(x));
+    const trash = paths.filter((x) => !safe.has(x));
+    const sum = (list: string[]) => list.reduce((n, x) => n + (sizeOf.get(x) ?? 0), 0);
+    const lines = [
+      del.length ? `• ${size(sum(del))} of caches and temp files will be deleted for good. Apps rebuild them as needed.` : "",
+      trash.length ? `• ${size(sum(trash))} will go to the Recycle Bin, so you can restore it.` : "",
+      "Folders are emptied, not removed, and files that are in use are skipped.",
+    ].filter(Boolean);
+    const ok = await confirm(`Clean up ${plural(paths.length, "item")} (${size(pickedSize)})?\n\n${lines.join("\n")}`, {
+      title: "Clean up",
+      kind: "warning",
+      okLabel: "Clean up",
+    });
     if (!ok) return;
     setBusy(true);
-    p.onNotify(`Cleaning up ${size(pickedSize)}…`);
+    setResult(null);
+    setCleaning({ done: 0, total: paths.length, path: del[0] ?? trash[0] });
     const before = info.size;
     try {
-      const inUse = await api.cleanUp(paths);
+      const inUse = await api.cleanUp(del, trash, (e) => {
+        setCleaning(e);
+        if (trash.length) api.recycleBinSize().then(setBin, () => {});
+      });
       const after = await api.spaceRefresh(root, paths);
       await afterChange([]);
-      const freed = Math.max(0, before - after.size);
-      p.onNotify(
-        `Moved ${size(freed)} to the Recycle Bin. Empty it to free the space.` +
-          (inUse ? ` ${plural(inUse, "item")} in use ${inUse === 1 ? "was" : "were"} skipped.` : "")
-      );
+      const gone = Math.max(0, before - after.size);
+      // What went to the Recycle Bin (the rest is gone for good).
+      const binned = Math.min(gone, sum(trash));
+      setResult({ freed: gone - binned, binned, inUse });
+      p.onNotify(`Cleaned up ${size(gone)}`);
     } catch (e) {
       p.onError(String(e));
     } finally {
+      setCleaning(null);
       setBusy(false);
     }
   };
@@ -297,6 +325,7 @@ export function Storage(p: Props) {
     setBusy(true);
     try {
       await api.emptyRecycleBin();
+      setResult(null);
       p.onNotify(`Freed ${size(bin)}`);
     } catch (e) {
       p.onError(String(e));
@@ -688,12 +717,34 @@ export function Storage(p: Props) {
           <div className="st-panel-head">
             <div>
               <div className="st-panel-title">Recommendations</div>
-              <div className="st-panel-sub">Pick what to clean up. It goes to the Recycle Bin.</div>
+              <div className="st-panel-sub">Pick what to clean up. Review items go to the Recycle Bin.</div>
             </div>
           </div>
           <div className="rec-list">
+            {result && (
+              <div className="rec-result" role="status">
+                <span className="rec-result-icon">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                </span>
+                <div className="rec-main">
+                  <span className="rec-title">Cleaned up {size(result.freed + result.binned)}</span>
+                  <span className="rec-result-note">
+                    {result.freed > 0 && `${size(result.freed)} is free now.`}
+                    {result.binned > 0 &&
+                      ` ${size(result.binned)} is in the Recycle Bin; empty it below to get that space back too.`}
+                    {result.inUse > 0 &&
+                      ` ${plural(result.inUse, "item")} ${result.inUse === 1 ? "was" : "were"} in use and stayed; close the apps using them (like your browser) and clean up again.`}
+                  </span>
+                </div>
+                <button className="icon-btn" aria-label="Dismiss" title="Dismiss" onClick={() => setResult(null)}>
+                  <UIIcon name="x" size={14} />
+                </button>
+              </div>
+            )}
             {bin > 0 && (
-              <div className="rec-bin">
+              <div className={`rec-bin ${result ? "attention" : ""}`}>
                 <UIIcon name="trash" size={16} />
                 <div className="rec-main">
                   <span className="rec-title">Recycle Bin</span>
@@ -721,6 +772,19 @@ export function Storage(p: Props) {
             {reviewList.map(recRow)}
             {!suggestions.length && <div className="st-empty small">Nothing to clean up here. Nice and tidy.</div>}
           </div>
+          {cleaning ? (
+            <div className="rec-foot cleaning" role="status">
+              <div className="rec-cleaning-text">
+                <b>
+                  Cleaning up… {Math.min(cleaning.done + 1, cleaning.total)} of {cleaning.total}
+                </b>
+                <span title={cleaning.path}>{cleaning.path ? short(cleaning.path) : "Finishing…"}</span>
+              </div>
+              <div className="st-progress">
+                <span style={{ width: `${Math.round((cleaning.done / Math.max(1, cleaning.total)) * 100)}%` }} />
+              </div>
+            </div>
+          ) : (
           <div className="rec-foot">
             <span className="rec-total">
               <b>{size(pickedSize)}</b> selected · {plural(picked.size, "item")}
@@ -737,6 +801,7 @@ export function Storage(p: Props) {
               Clean up
             </button>
           </div>
+          )}
         </aside>
       </div>
 

@@ -111,6 +111,13 @@ export interface SpaceNode {
   children: SpaceNode[];
 }
 
+/** Streamed while cleaning up: `done` of `total` suggested items finished. */
+export interface CleanProgress {
+  done: number;
+  total: number;
+  path: string; // the item being cleaned now
+}
+
 /** Things worth cleaning up, grouped by why. */
 export interface Suggestion {
   id: string;
